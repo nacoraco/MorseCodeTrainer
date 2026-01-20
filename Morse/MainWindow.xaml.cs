@@ -131,12 +131,7 @@ namespace Morse
                     decodedLetters += letter;
                     fullText += letter;
                 }
-                else
-                {
-                    // Invalid morse code - just skip or show as ?
-                    decodedLetters += "?";
-                    fullText += "?";
-                }
+                // If invalid morse code, just skip it (don't add anything)
                 currentMorse = "";
             }
         }
