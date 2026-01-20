@@ -31,6 +31,11 @@ namespace Morse
         private DispatcherTimer? idleTimer;
         private int delayMs = 800; // Default delay in milliseconds
         private const int DefaultDelayMs = 800;
+        
+        // Window size constants
+        private const double BaseWindowHeight = 280;
+        private const double SettingsHeight = 80;
+        private const double CheatSheetHeight = 350;
 
         public MainWindow()
         {
@@ -203,14 +208,42 @@ namespace Morse
 
         private void SettingsButton_Click(object sender, RoutedEventArgs e)
         {
-            SettingsPanel.Visibility = SettingsPanel.Visibility == Visibility.Collapsed ? Visibility.Visible : Visibility.Collapsed;
+            bool isExpanding = SettingsPanel.Visibility == Visibility.Collapsed;
+            SettingsPanel.Visibility = isExpanding ? Visibility.Visible : Visibility.Collapsed;
             DelayInput.Text = (delayMs / 1000.0).ToString("F1");
+            
+            // Calculate target height
+            double targetHeight = BaseWindowHeight;
+            if (isExpanding)
+            {
+                targetHeight += SettingsHeight;
+            }
+            if (CheatSheetPanel.Visibility == Visibility.Visible)
+            {
+                targetHeight += CheatSheetHeight;
+            }
+            
+            AnimateWindowHeight(targetHeight);
             Focus();
         }
 
         private void CheatSheetButton_Click(object sender, RoutedEventArgs e)
         {
-            CheatSheetPanel.Visibility = CheatSheetPanel.Visibility == Visibility.Collapsed ? Visibility.Visible : Visibility.Collapsed;
+            bool isExpanding = CheatSheetPanel.Visibility == Visibility.Collapsed;
+            CheatSheetPanel.Visibility = isExpanding ? Visibility.Visible : Visibility.Collapsed;
+            
+            // Calculate target height
+            double targetHeight = BaseWindowHeight;
+            if (SettingsPanel.Visibility == Visibility.Visible)
+            {
+                targetHeight += SettingsHeight;
+            }
+            if (isExpanding)
+            {
+                targetHeight += CheatSheetHeight;
+            }
+            
+            AnimateWindowHeight(targetHeight);
             Focus();
         }
 
@@ -298,6 +331,15 @@ namespace Morse
                 clearTimer.Tick += (s, e) => { StatusText.Text = ""; clearTimer.Stop(); };
                 clearTimer.Start();
                 SettingsPanel.Visibility = Visibility.Collapsed;
+                
+                // Animate window back to original size
+                double targetHeight = BaseWindowHeight;
+                if (CheatSheetPanel.Visibility == Visibility.Visible)
+                {
+                    targetHeight += CheatSheetHeight;
+                }
+                AnimateWindowHeight(targetHeight);
+                
                 Focus();
             }
             else
@@ -307,6 +349,18 @@ namespace Morse
                 clearTimer.Tick += (s, e) => { StatusText.Text = ""; clearTimer.Stop(); };
                 clearTimer.Start();
             }
+        }
+        
+        private void AnimateWindowHeight(double targetHeight)
+        {
+            var animation = new System.Windows.Media.Animation.DoubleAnimation
+            {
+                From = this.ActualHeight,
+                To = targetHeight,
+                Duration = TimeSpan.FromMilliseconds(250),
+                EasingFunction = new System.Windows.Media.Animation.QuadraticEase { EasingMode = System.Windows.Media.Animation.EasingMode.EaseInOut }
+            };
+            this.BeginAnimation(Window.HeightProperty, animation);
         }
     }
 }
