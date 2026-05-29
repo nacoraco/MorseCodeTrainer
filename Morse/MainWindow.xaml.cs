@@ -292,7 +292,6 @@ namespace Morse
             {
                 learnStreak = 0;
                 UpdateLearnUI();
-                ShowTempStatus("⏱ Streak lost!");
             }
         }
 
@@ -655,12 +654,12 @@ namespace Morse
 
         private void UpdateLearnUI()
         {
-            LearnLevelText.Text = $"Level {learnLevel} / {MaxLearnLevel}  |  Streak: {learnStreak}";
+            LearnLevelText.Text = $"Level {learnLevel} / {MaxLearnLevel}";
             LearnTargetText.Text = learnTarget.ToString();
             LearnHintText.Text = learnRevealedBits.Count > 0
                 ? "Hint: " + BuildHintString()
                 : "";
-            LearnStreakText.Text = learnStreak > 0 ? $"Streak: {learnStreak} / {AutoLevelUpStreak}" : "";
+            LearnStreakText.Text = "";
         }
 
         private string BuildHintString()
