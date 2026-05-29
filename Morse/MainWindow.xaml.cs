@@ -71,7 +71,7 @@ namespace Morse
 
         private const int MaxLearnLevel = 7;
         private const int AutoLevelUpStreak = 10;
-        private const int StreakTimeoutMs = 4000;
+        private const int StreakTimeoutMs = 2000;
 
         private InputMode mode = InputMode.Morse;
         private string currentMorse = "";
