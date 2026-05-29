@@ -5,26 +5,38 @@
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:local="clr-namespace:Morse"
         mc:Ignorable="d"
-        Title="Morse Code Trainer" Height="280" Width="320"
-        KeyDown="Window_KeyDown" Background="#F0F0F0" ResizeMode="CanResize" MinHeight="200" MinWidth="250">
+        Title="Morse Code Trainer" Height="330" Width="320"
+        KeyDown="Window_KeyDown" KeyUp="Window_KeyUp" Background="#F0F0F0" ResizeMode="CanResize" MinHeight="250" MinWidth="250">
     <Grid>
         <StackPanel VerticalAlignment="Stretch" HorizontalAlignment="Stretch" Margin="10">
             
-            <!-- Current Morse Input -->
-            <StackPanel Margin="0,0,0,8">
-                <TextBlock Text="Input:" FontSize="11" FontWeight="Bold" Foreground="#333333" Margin="0,0,0,3"/>
+            <!-- Mode Toggle -->
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,0,0,6">
+                <Button x:Name="MorseModeButton" Content="Morse" Click="MorseModeButton_Click"
+                        Padding="14,5" FontSize="12" FontWeight="Bold" Cursor="Hand" MinWidth="70" Margin="0,0,3,0"/>
+                <Button x:Name="ChordModeButton" Content="Chord" Click="ChordModeButton_Click"
+                        Padding="14,5" FontSize="12" FontWeight="Bold" Cursor="Hand" MinWidth="70" Margin="3,0,0,0"/>
+            </StackPanel>
+
+            <!-- Current Input -->
+            <StackPanel Margin="0,0,0,5">
+                <TextBlock x:Name="InputLabel" Text="Input:" FontSize="11" FontWeight="Bold" Foreground="#333333" Margin="0,0,0,3"/>
                 <Border Background="White" BorderBrush="#CCCCCC" BorderThickness="1" CornerRadius="3" Padding="8">
                     <TextBlock x:Name="CurrentMorseDisplay" FontSize="18" Foreground="#0066CC" 
-                               FontFamily="Courier New" MinHeight="30" TextAlignment="Center"/>
+                               FontFamily="Courier New" MinHeight="28" TextAlignment="Center"/>
                 </Border>
             </StackPanel>
-            
+
+            <!-- Instruction -->
+            <TextBlock x:Name="InstructionText" FontSize="9" Foreground="#666666" TextAlignment="Center" 
+                       Margin="0,0,0,5" Text=". = dot  |  - = dash  |  , = space  |  Backspace = delete  |  Space = copy"/>
+
             <!-- Text Output -->
             <StackPanel Margin="0,0,0,8">
                 <TextBlock Text="Text:" FontSize="11" FontWeight="Bold" Foreground="#333333" Margin="0,0,0,3"/>
                 <Border Background="White" BorderBrush="#CCCCCC" BorderThickness="1" CornerRadius="3" Padding="8">
                     <TextBlock x:Name="TextDisplay" FontSize="16" Foreground="#00AA00" 
-                               FontFamily="Courier New" MinHeight="60" TextWrapping="Wrap"/>
+                               FontFamily="Courier New" MinHeight="50" TextWrapping="Wrap"/>
                 </Border>
             </StackPanel>
             
