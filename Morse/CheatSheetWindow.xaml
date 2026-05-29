@@ -1,7 +1,7 @@
 <Window x:Class="Morse.CheatSheetWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Morse Code Cheat Sheet" Height="600" Width="700"
+        Title="Trainer" Height="600" Width="700"
         Background="#F0F0F0" ResizeMode="CanResize" MinHeight="400" MinWidth="500">
     <Grid>
         <StackPanel VerticalAlignment="Stretch" HorizontalAlignment="Stretch" Margin="15">

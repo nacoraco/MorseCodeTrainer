@@ -1,4 +1,6 @@
-﻿using System.Collections.Generic;
+﻿using System;
+using System.Collections.Generic;
+using System.Linq;
 using System.Text;
 using System.Windows;
 using System.Windows.Controls;
@@ -9,9 +11,8 @@ namespace Morse
 {
     public partial class MainWindow : Window
     {
-        private enum InputMode { Morse, Chord }
+        private enum InputMode { Morse, Chord, Learn }
 
-        // Morse
         private static readonly Dictionary<string, char> MorseDict = new()
         {
             { ".-", 'A' }, { "-...", 'B' }, { "-.-.", 'C' }, { "-..", 'D' }, { ".", 'E' },
@@ -24,7 +25,6 @@ namespace Morse
             { "----.", '9' }
         };
 
-        // Chord: bitmask per key  A=7=bit0(1) B=8=bit1(2) C=4=bit2(4) D=5=bit3(8) E=1=bit4(16) F=2=bit5(32)
         private static readonly Dictionary<int, char> ChordDict = new()
         {
             { 1, 'A' }, { 2, 'B' }, { 4, 'C' }, { 8, 'D' }, { 16, 'E' }, { 32, 'F' },
@@ -37,11 +37,19 @@ namespace Morse
             { 13, 'Q' }
         };
 
+        private static readonly Dictionary<char, int> LetterToMask;
+
+        static MainWindow()
+        {
+            LetterToMask = new Dictionary<char, int>();
+            foreach (var kvp in ChordDict)
+                LetterToMask[kvp.Value] = kvp.Key;
+        }
+
         private static readonly int[] ChordBits = { 1, 2, 4, 8, 16, 32 };
         private static readonly string[] ChordKeyLabels = { "7", "8", "4", "5", "1", "2" };
         private static readonly string[] ChordDotLabels = { "A", "B", "C", "D", "E", "F" };
 
-        // Chord key set: NumPad and regular digits
         private static readonly HashSet<Key> ChordKeys = new()
         {
             Key.NumPad7, Key.D7, Key.NumPad8, Key.D8,
@@ -49,7 +57,22 @@ namespace Morse
             Key.NumPad1, Key.D1, Key.NumPad2, Key.D2
         };
 
-        // State
+        private static readonly List<char>[] LevelLetters = new List<char>[]
+        {
+            new(),
+            new() { 'A', 'B', 'C', 'D', 'E', 'F' },
+            new() { 'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K' },
+            new() { 'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O' },
+            new() { 'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P', 'R', 'S' },
+            new() { 'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P', 'R', 'S', 'T', 'U' },
+            new() { 'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P', 'R', 'S', 'T', 'U', 'V' },
+            new() { 'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P', 'R', 'S', 'T', 'U', 'V', 'X', 'Y', 'Z', 'W', 'Q' }
+        };
+
+        private const int MaxLearnLevel = 7;
+        private const int AutoLevelUpStreak = 10;
+        private const int StreakTimeoutMs = 4000;
+
         private InputMode mode = InputMode.Morse;
         private string currentMorse = "";
         private int chordMask = 0;
@@ -59,7 +82,18 @@ namespace Morse
         private int delayMs = 800;
         private const int DefaultDelayMs = 800;
 
-        private const double BaseWindowHeight = 330;
+        private int learnLevel = 1;
+        private char learnTarget = 'A';
+        private int learnTargetMask = 0;
+        private int learnStreak = 0;
+        private int learnMissCount = 0;
+        private readonly HashSet<int> learnRevealedBits = new();
+        private readonly List<int> learnHintBits = new();
+        private bool learnHasEverStarted = false;
+        private DispatcherTimer? clearStatusTimer;
+        private DispatcherTimer? streakTimer;
+
+        private const double BaseWindowHeight = 400;
         private const double SettingsHeight = 80;
         private const double CheatSheetHeight = 350;
 
@@ -67,6 +101,7 @@ namespace Morse
         {
             InitializeComponent();
             SetupIdleTimer();
+            SetupStreakTimer();
             PopulateCheatSheet();
             UpdateModeUI();
             Focus();
@@ -79,24 +114,27 @@ namespace Morse
             idleTimer.Tick += IdleTimer_Tick;
         }
 
+        private void SetupStreakTimer()
+        {
+            streakTimer = new DispatcherTimer();
+            streakTimer.Interval = TimeSpan.FromMilliseconds(StreakTimeoutMs);
+            streakTimer.Tick += StreakTimer_Tick;
+        }
+
         private void Window_KeyDown(object sender, KeyEventArgs e)
         {
             if (mode == InputMode.Morse)
-            {
                 HandleMorseKeyDown(e);
-            }
-            else
-            {
+            else if (mode == InputMode.Chord)
                 HandleChordKeyDown(e);
-            }
+            else
+                HandleLearnKeyDown(e);
         }
 
         private void Window_KeyUp(object sender, KeyEventArgs e)
         {
-            if (mode == InputMode.Chord && ChordKeys.Contains(e.Key))
-            {
+            if ((mode == InputMode.Chord || mode == InputMode.Learn) && ChordKeys.Contains(e.Key))
                 e.Handled = true;
-            }
         }
 
         private void HandleMorseKeyDown(KeyEventArgs e)
@@ -140,10 +178,7 @@ namespace Morse
                     currentMorse = "";
                     UpdateDisplays();
                     idleTimer?.Stop();
-                    StatusText.Text = "✓ Copied!";
-                    var clearTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
-                    clearTimer.Tick += (s, e) => { StatusText.Text = ""; clearTimer.Stop(); };
-                    clearTimer.Start();
+                    ShowTempStatus("✓ Copied!");
                 }
                 e.Handled = true;
             }
@@ -185,11 +220,27 @@ namespace Morse
                     chordMask = 0;
                     UpdateDisplays();
                     idleTimer?.Stop();
-                    StatusText.Text = "✓ Copied!";
-                    var clearTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
-                    clearTimer.Tick += (s, e) => { StatusText.Text = ""; clearTimer.Stop(); };
-                    clearTimer.Start();
+                    ShowTempStatus("✓ Copied!");
                 }
+                e.Handled = true;
+            }
+        }
+
+        private void HandleLearnKeyDown(KeyEventArgs e)
+        {
+            if (ChordKeys.Contains(e.Key))
+            {
+                int bit = KeyToBit(e.Key);
+                chordMask ^= bit;
+                UpdateDisplays();
+                RestartIdleTimer();
+                e.Handled = true;
+            }
+            else if (e.Key == Key.Back)
+            {
+                chordMask = 0;
+                UpdateDisplays();
+                idleTimer?.Stop();
                 e.Handled = true;
             }
         }
@@ -198,12 +249,12 @@ namespace Morse
         {
             return key switch
             {
-                Key.NumPad7 or Key.D7 => 1,   // A
-                Key.NumPad8 or Key.D8 => 2,   // B
-                Key.NumPad4 or Key.D4 => 4,   // C
-                Key.NumPad5 or Key.D5 => 8,   // D
-                Key.NumPad1 or Key.D1 => 16,  // E
-                Key.NumPad2 or Key.D2 => 32,  // F
+                Key.NumPad7 or Key.D7 => 1,
+                Key.NumPad8 or Key.D8 => 2,
+                Key.NumPad4 or Key.D4 => 4,
+                Key.NumPad5 or Key.D5 => 8,
+                Key.NumPad1 or Key.D1 => 16,
+                Key.NumPad2 or Key.D2 => 32,
                 _ => 0
             };
         }
@@ -224,36 +275,118 @@ namespace Morse
         private void IdleTimer_Tick(object? sender, EventArgs e)
         {
             idleTimer?.Stop();
-            DecodeCurrent();
+            if (mode == InputMode.Learn)
+            {
+                streakTimer?.Stop();
+                EvaluateLearnAnswer();
+            }
+            else
+                DecodeCurrent();
             UpdateDisplays();
+        }
+
+        private void StreakTimer_Tick(object? sender, EventArgs e)
+        {
+            streakTimer?.Stop();
+            if (mode == InputMode.Learn && learnStreak > 0)
+            {
+                learnStreak = 0;
+                UpdateLearnUI();
+                ShowTempStatus("⏱ Streak lost!");
+            }
         }
 
         private void DecodeCurrent()
         {
-            if (mode == InputMode.Morse)
+            if (currentMorse.Length > 0)
             {
-                if (currentMorse.Length > 0)
+                if (MorseDict.TryGetValue(currentMorse, out char letter))
                 {
-                    if (MorseDict.TryGetValue(currentMorse, out char letter))
-                    {
-                        decodedLetters += letter;
-                        fullText += letter;
-                    }
-                    currentMorse = "";
+                    decodedLetters += letter;
+                    fullText += letter;
                 }
+                currentMorse = "";
+            }
+            else if (chordMask != 0)
+            {
+                if (ChordDict.TryGetValue(chordMask, out char letter))
+                {
+                    decodedLetters += letter;
+                    fullText += letter;
+                }
+                chordMask = 0;
+            }
+        }
+
+        private void EvaluateLearnAnswer()
+        {
+            if (chordMask == 0)
+                return;
+
+            if (chordMask == learnTargetMask)
+            {
+                learnStreak++;
+                learnMissCount = 0;
+                learnRevealedBits.Clear();
+                chordMask = 0;
+                streakTimer?.Stop();
+                streakTimer?.Start();
+
+                if (learnStreak >= AutoLevelUpStreak && learnLevel < MaxLearnLevel)
+                {
+                    learnLevel++;
+                    learnStreak = 0;
+                    streakTimer?.Stop();
+                    ShowTempStatus($"✓ Level {learnLevel}!");
+                }
+                else
+                {
+                    ShowTempStatus("✓ Correct!");
+                }
+
+                PickNextLearnTarget();
             }
             else
             {
-                if (chordMask != 0)
-                {
-                    if (ChordDict.TryGetValue(chordMask, out char letter))
-                    {
-                        decodedLetters += letter;
-                        fullText += letter;
-                    }
-                    chordMask = 0;
-                }
+                learnStreak = 0;
+                streakTimer?.Stop();
+                learnMissCount++;
+                chordMask = 0;
+
+                int hintCount = learnMissCount - 1;
+                if (hintCount < learnHintBits.Count)
+                    learnRevealedBits.Add(learnHintBits[hintCount]);
+
+                ShowTempStatus("✗ Try again");
             }
+
+            UpdateLearnUI();
+        }
+
+        private void PickNextLearnTarget()
+        {
+            var previous = learnTarget;
+            var pool = LevelLetters[learnLevel];
+
+            char next;
+            do
+            {
+                next = pool[Random.Shared.Next(pool.Count)];
+            } while (next == previous && pool.Count > 1);
+
+            learnTarget = next;
+            learnTargetMask = LetterToMask[learnTarget];
+            learnMissCount = 0;
+            learnRevealedBits.Clear();
+            learnHintBits.Clear();
+
+            for (int i = 0; i < ChordBits.Length; i++)
+            {
+                if ((learnTargetMask & ChordBits[i]) != 0)
+                    learnHintBits.Add(i);
+            }
+
+            UpdateLearnUI();
         }
 
         private void UpdateDisplays()
@@ -279,9 +412,7 @@ namespace Morse
                 else if (i < 5) sb.Append(' ');
             }
             if (ChordDict.TryGetValue(chordMask, out char letter))
-            {
                 sb.Append("  → ").Append(letter);
-            }
             return sb.ToString();
         }
 
@@ -305,10 +436,7 @@ namespace Morse
             fullText = "";
             idleTimer?.Stop();
             UpdateDisplays();
-            StatusText.Text = "Cleared!";
-            var clearTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
-            clearTimer.Tick += (s, e) => { StatusText.Text = ""; clearTimer.Stop(); };
-            clearTimer.Start();
+            ShowTempStatus("Cleared!");
             Focus();
         }
 
@@ -323,10 +451,7 @@ namespace Morse
                 chordMask = 0;
                 UpdateDisplays();
                 idleTimer?.Stop();
-                StatusText.Text = "✓ Copied!";
-                var clearTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
-                clearTimer.Tick += (s, e) => { StatusText.Text = ""; clearTimer.Stop(); };
-                clearTimer.Start();
+                ShowTempStatus("✓ Copied!");
             }
             Focus();
         }
@@ -338,10 +463,7 @@ namespace Morse
                 char removed = fullText[fullText.Length - 1];
                 fullText = fullText.Substring(0, fullText.Length - 1);
                 UpdateDisplays();
-                StatusText.Text = $"Removed: {removed}";
-                var clearTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
-                clearTimer.Tick += (s, e) => { StatusText.Text = ""; clearTimer.Stop(); };
-                clearTimer.Start();
+                ShowTempStatus($"Removed: {removed}");
             }
             Focus();
         }
@@ -354,13 +476,9 @@ namespace Morse
 
             double targetHeight = BaseWindowHeight;
             if (isExpanding)
-            {
                 targetHeight += SettingsHeight;
-            }
             if (CheatSheetPanel.Visibility == Visibility.Visible)
-            {
                 targetHeight += CheatSheetHeight;
-            }
 
             AnimateWindowHeight(targetHeight);
             Focus();
@@ -373,13 +491,9 @@ namespace Morse
 
             double targetHeight = BaseWindowHeight;
             if (SettingsPanel.Visibility == Visibility.Visible)
-            {
                 targetHeight += SettingsHeight;
-            }
             if (isExpanding)
-            {
                 targetHeight += CheatSheetHeight;
-            }
 
             AnimateWindowHeight(targetHeight);
             Focus();
@@ -394,32 +508,22 @@ namespace Morse
                 if (delayMs > 10000) delayMs = 10000;
 
                 if (idleTimer != null)
-                {
                     idleTimer.Interval = TimeSpan.FromMilliseconds(delayMs);
-                }
 
-                StatusText.Text = $"✓ Delay set to {delayMs}ms";
+                ShowTempStatus($"✓ Delay set to {delayMs}ms");
                 DelayInput.Text = (delayMs / 1000.0).ToString("F1");
-                var clearTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
-                clearTimer.Tick += (s, e) => { StatusText.Text = ""; clearTimer.Stop(); };
-                clearTimer.Start();
                 SettingsPanel.Visibility = Visibility.Collapsed;
 
                 double targetHeight = BaseWindowHeight;
                 if (CheatSheetPanel.Visibility == Visibility.Visible)
-                {
                     targetHeight += CheatSheetHeight;
-                }
                 AnimateWindowHeight(targetHeight);
 
                 Focus();
             }
             else
             {
-                StatusText.Text = "✗ Invalid input";
-                var clearTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
-                clearTimer.Tick += (s, e) => { StatusText.Text = ""; clearTimer.Stop(); };
-                clearTimer.Start();
+                ShowTempStatus("✗ Invalid input");
             }
         }
 
@@ -433,6 +537,15 @@ namespace Morse
                 EasingFunction = new System.Windows.Media.Animation.QuadraticEase { EasingMode = System.Windows.Media.Animation.EasingMode.EaseInOut }
             };
             this.BeginAnimation(Window.HeightProperty, animation);
+        }
+
+        private void ShowTempStatus(string message)
+        {
+            clearStatusTimer?.Stop();
+            StatusText.Text = message;
+            clearStatusTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
+            clearStatusTimer.Tick += (s, e) => { StatusText.Text = ""; clearStatusTimer.Stop(); };
+            clearStatusTimer.Start();
         }
 
         // ─── Mode switching ────────────────────────────────────────
@@ -449,11 +562,29 @@ namespace Morse
             Focus();
         }
 
+        private void LearnModeButton_Click(object sender, RoutedEventArgs e)
+        {
+            SetMode(InputMode.Learn);
+            Focus();
+        }
+
         private void SetMode(InputMode newMode)
         {
             if (mode == newMode) return;
             ResetAll();
             mode = newMode;
+
+            if (mode == InputMode.Learn && !learnHasEverStarted)
+            {
+                learnHasEverStarted = true;
+                learnLevel = 1;
+                learnStreak = 0;
+                learnMissCount = 0;
+                learnRevealedBits.Clear();
+                learnHintBits.Clear();
+                PickNextLearnTarget();
+            }
+
             UpdateModeUI();
             PopulateCheatSheet();
         }
@@ -461,38 +592,88 @@ namespace Morse
         private void ResetAll()
         {
             idleTimer?.Stop();
+            streakTimer?.Stop();
             currentMorse = "";
             chordMask = 0;
             decodedLetters = "";
             fullText = "";
             UpdateDisplays();
+            StatusText.Text = "";
         }
 
         private void UpdateModeUI()
         {
             bool isMorse = mode == InputMode.Morse;
-            MorseModeButton.Background = isMorse
-                ? new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0x4C, 0xAF, 0x50))
-                : new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0xCC, 0xCC, 0xCC));
-            MorseModeButton.Foreground = isMorse
-                ? System.Windows.Media.Brushes.White
-                : new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0x66, 0x66, 0x66));
-            ChordModeButton.Background = !isMorse
-                ? new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0xFF, 0x98, 0x00))
-                : new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0xCC, 0xCC, 0xCC));
-            ChordModeButton.Foreground = !isMorse
-                ? System.Windows.Media.Brushes.White
-                : new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0x66, 0x66, 0x66));
-            InputLabel.Text = isMorse ? "Morse:" : "Chord:";
-            InstructionText.Text = isMorse
-                ? ". = dot  |  - = dash  |  , = space  |  Backspace = delete  |  Space = copy"
-                : "7=A 8=B 4=C 5=D 1=E 2=F  |  Backspace = clear  |  , = space  |  Space = copy";
-            CurrentMorseDisplay.Foreground = isMorse
-                ? new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0x00, 0x66, 0xCC))
-                : new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0xFF, 0x98, 0x00));
-            CurrentMorseDisplay.TextAlignment = isMorse ? TextAlignment.Center : TextAlignment.Left;
-            CurrentMorseDisplay.FontSize = isMorse ? 18 : 14;
+            bool isChord = mode == InputMode.Chord;
+            bool isLearn = mode == InputMode.Learn;
+
+            SetButtonState(MorseModeButton, isMorse, System.Windows.Media.Color.FromRgb(0x4C, 0xAF, 0x50));
+            SetButtonState(ChordModeButton, isChord, System.Windows.Media.Color.FromRgb(0xFF, 0x98, 0x00));
+            SetButtonState(LearnModeButton, isLearn, System.Windows.Media.Color.FromRgb(0xCC, 0x66, 0x00));
+
+            LearnPanel.Visibility = isLearn ? Visibility.Visible : Visibility.Collapsed;
+
+            if (isLearn)
+            {
+                InputLabel.Text = "Chord:";
+                InstructionText.Text = "7=A 8=B 4=C 5=D 1=E 2=F  |  Backspace = clear";
+                CurrentMorseDisplay.Foreground = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0xCC, 0x66, 0x00));
+                CurrentMorseDisplay.TextAlignment = TextAlignment.Left;
+                CurrentMorseDisplay.FontSize = 14;
+                UpdateLearnUI();
+            }
+            else if (isMorse)
+            {
+                InputLabel.Text = "Morse:";
+                InstructionText.Text = ". = dot  |  - = dash  |  , = space  |  Backspace = delete  |  Space = copy";
+                CurrentMorseDisplay.Foreground = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0x00, 0x66, 0xCC));
+                CurrentMorseDisplay.TextAlignment = TextAlignment.Center;
+                CurrentMorseDisplay.FontSize = 18;
+            }
+            else
+            {
+                InputLabel.Text = "Chord:";
+                InstructionText.Text = "7=A 8=B 4=C 5=D 1=E 2=F  |  Backspace = clear  |  , = space  |  Space = copy";
+                CurrentMorseDisplay.Foreground = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0xFF, 0x98, 0x00));
+                CurrentMorseDisplay.TextAlignment = TextAlignment.Left;
+                CurrentMorseDisplay.FontSize = 14;
+            }
             UpdateDisplays();
+        }
+
+        private static void SetButtonState(Button btn, bool active, System.Windows.Media.Color activeColor)
+        {
+            btn.Background = active
+                ? new System.Windows.Media.SolidColorBrush(activeColor)
+                : new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0xCC, 0xCC, 0xCC));
+            btn.Foreground = active
+                ? System.Windows.Media.Brushes.White
+                : new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0x66, 0x66, 0x66));
+        }
+
+        // ─── Learn UI ──────────────────────────────────────────────
+
+        private void UpdateLearnUI()
+        {
+            LearnLevelText.Text = $"Level {learnLevel} / {MaxLearnLevel}  |  Streak: {learnStreak}";
+            LearnTargetText.Text = learnTarget.ToString();
+            LearnHintText.Text = learnRevealedBits.Count > 0
+                ? "Hint: " + BuildHintString()
+                : "";
+            LearnStreakText.Text = learnStreak > 0 ? $"Streak: {learnStreak} / {AutoLevelUpStreak}" : "";
+        }
+
+        private string BuildHintString()
+        {
+            var keys = new List<string>();
+            foreach (int bitIdx in learnHintBits)
+            {
+                if (learnRevealedBits.Contains(bitIdx))
+                    keys.Add(ChordDotLabels[bitIdx]);
+                else
+                    keys.Add("_");
+            }
+            return string.Join(" + ", keys);
         }
 
         // ─── Cheat sheet ───────────────────────────────────────────
@@ -504,21 +685,15 @@ namespace Morse
             CheatSheetGrid.RowDefinitions.Clear();
 
             if (mode == InputMode.Morse)
-            {
                 PopulateMorseCheatSheet();
-            }
             else
-            {
                 PopulateChordCheatSheet();
-            }
         }
 
         private void PopulateMorseCheatSheet()
         {
             for (int i = 0; i < 4; i++)
-            {
                 CheatSheetGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-            }
 
             int row = 0;
             int col = 0;
@@ -526,9 +701,7 @@ namespace Morse
             foreach (var kvp in MorseDict)
             {
                 if (col == 0)
-                {
                     CheatSheetGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-                }
 
                 var stackPanel = new StackPanel
                 {
@@ -559,11 +732,7 @@ namespace Morse
                 CheatSheetGrid.Children.Add(stackPanel);
 
                 col++;
-                if (col >= 4)
-                {
-                    col = 0;
-                    row++;
-                }
+                if (col >= 4) { col = 0; row++; }
             }
         }
 
@@ -575,9 +744,7 @@ namespace Morse
             int row = 0;
             var entries = new List<(int mask, char letter)>();
             foreach (var kvp in ChordDict)
-            {
                 entries.Add((kvp.Key, kvp.Value));
-            }
             entries.Sort((a, b) => a.letter.CompareTo(b.letter));
 
             foreach (var (mask, letter) in entries)
@@ -622,12 +789,7 @@ namespace Morse
 
                     if (i == 1 || i == 3)
                     {
-                        dotsPanel.Children.Add(new TextBlock
-                        {
-                            Text = " ",
-                            FontSize = 1,
-                            Width = 12
-                        });
+                        dotsPanel.Children.Add(new TextBlock { Text = " ", FontSize = 1, Width = 12 });
                     }
                 }
 
@@ -655,9 +817,7 @@ namespace Morse
             for (int i = 0; i < ChordBits.Length; i++)
             {
                 if ((mask & ChordBits[i]) != 0)
-                {
                     keys.Add(ChordDotLabels[i]);
-                }
             }
             return string.Join("+", keys);
         }

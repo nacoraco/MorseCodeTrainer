@@ -5,18 +5,31 @@
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:local="clr-namespace:Morse"
         mc:Ignorable="d"
-        Title="Morse Code Trainer" Height="330" Width="320"
-        KeyDown="Window_KeyDown" KeyUp="Window_KeyUp" Background="#F0F0F0" ResizeMode="CanResize" MinHeight="250" MinWidth="250">
+        Title="Trainer" Height="380" Width="340"
+        KeyDown="Window_KeyDown" KeyUp="Window_KeyUp" Background="#F0F0F0" ResizeMode="CanResize" MinHeight="320" MinWidth="280">
     <Grid>
         <StackPanel VerticalAlignment="Stretch" HorizontalAlignment="Stretch" Margin="10">
             
             <!-- Mode Toggle -->
             <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,0,0,6">
                 <Button x:Name="MorseModeButton" Content="Morse" Click="MorseModeButton_Click"
-                        Padding="14,5" FontSize="12" FontWeight="Bold" Cursor="Hand" MinWidth="70" Margin="0,0,3,0"/>
+                        Padding="10,5" FontSize="12" FontWeight="Bold" Cursor="Hand" MinWidth="60" Margin="0,0,3,0"/>
                 <Button x:Name="ChordModeButton" Content="Chord" Click="ChordModeButton_Click"
-                        Padding="14,5" FontSize="12" FontWeight="Bold" Cursor="Hand" MinWidth="70" Margin="3,0,0,0"/>
+                        Padding="10,5" FontSize="12" FontWeight="Bold" Cursor="Hand" MinWidth="60" Margin="3,0,3,0"/>
+                <Button x:Name="LearnModeButton" Content="Learn" Click="LearnModeButton_Click"
+                        Padding="10,5" FontSize="12" FontWeight="Bold" Cursor="Hand" MinWidth="60" Margin="3,0,0,0"/>
             </StackPanel>
+
+            <!-- Learn Info Panel -->
+            <Border x:Name="LearnPanel" Visibility="Collapsed" Margin="0,0,0,5" Background="#FFEEDD" Padding="6" CornerRadius="3">
+                <StackPanel>
+                    <TextBlock x:Name="LearnLevelText" FontSize="10" FontWeight="Bold" Foreground="#CC6600" Margin="0,0,0,2"/>
+                    <TextBlock x:Name="LearnTargetText" FontSize="28" FontWeight="Bold" Foreground="#E65100" 
+                               HorizontalAlignment="Center" FontFamily="Courier New"/>
+                    <TextBlock x:Name="LearnHintText" FontSize="11" Foreground="#666666" TextAlignment="Center" Margin="0,2,0,0"/>
+                    <TextBlock x:Name="LearnStreakText" FontSize="9" Foreground="#888888" TextAlignment="Center"/>
+                </StackPanel>
+            </Border>
 
             <!-- Current Input -->
             <StackPanel Margin="0,0,0,5">
