@@ -75,10 +75,19 @@
             <!-- Settings Section -->
             <Border x:Name="SettingsPanel" Visibility="Collapsed" Margin="0,5,0,0" Background="#EFEFEF" Padding="8" CornerRadius="3">
                 <StackPanel>
-                    <TextBlock Text="Delay (seconds):" FontSize="10" FontWeight="Bold" Foreground="#333333" Margin="0,0,0,3"/>
+                    <TextBlock Text="Auto-decode delay (seconds):" FontSize="10" FontWeight="Bold" Foreground="#333333" Margin="0,0,2,0"/>
+                    <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
+                        <Slider x:Name="DelaySlider" Minimum="0.1" Maximum="1.0" SmallChange="0.1" LargeChange="0.1"
+                                Value="0.8" TickFrequency="0.1" TickPlacement="BottomRight" IsSnapToTickEnabled="True"
+                                ValueChanged="DelaySlider_ValueChanged" Width="140" VerticalAlignment="Center"/>
+                        <TextBlock x:Name="DelaySliderValue" FontSize="10" Foreground="#333333" VerticalAlignment="Center" Margin="6,0,0,0" Text="0.8s"/>
+                    </StackPanel>
+                    <TextBlock Text="Streak timeout (seconds):" FontSize="10" FontWeight="Bold" Foreground="#333333" Margin="0,0,2,0"/>
                     <StackPanel Orientation="Horizontal">
-                        <TextBox x:Name="DelayInput" Width="60" Padding="4" FontSize="10" Text="0.8"/>
-                        <Button Content="Apply" Click="ApplySettings_Click" Padding="8,4" FontSize="10" Margin="5,0,0,0" Background="#2196F3" Foreground="White" Cursor="Hand"/>
+                        <Slider x:Name="StreakSlider" Minimum="1" Maximum="5" SmallChange="1" LargeChange="1"
+                                Value="4" TickFrequency="1" TickPlacement="BottomRight" IsSnapToTickEnabled="True"
+                                ValueChanged="StreakSlider_ValueChanged" Width="140" VerticalAlignment="Center"/>
+                        <TextBlock x:Name="StreakSliderValue" FontSize="10" Foreground="#333333" VerticalAlignment="Center" Margin="6,0,0,0" Text="4s"/>
                     </StackPanel>
                 </StackPanel>
             </Border>

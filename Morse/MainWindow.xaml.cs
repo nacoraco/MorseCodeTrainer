@@ -1,7 +1,9 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Text;
+using System.Text.Json;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -69,9 +71,14 @@ namespace Morse
             new() { 'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P', 'R', 'S', 'T', 'U', 'V', 'X', 'Y', 'Z', 'W', 'Q' }
         };
 
+        private class AppConfig
+        {
+            public int DelayMs { get; set; } = 800;
+            public int StreakTimeoutMs { get; set; } = 4000;
+        }
+
         private const int MaxLearnLevel = 7;
         private const int AutoLevelUpStreak = 10;
-        private const int StreakTimeoutMs = 2000;
 
         private InputMode mode = InputMode.Morse;
         private string currentMorse = "";
@@ -80,7 +87,7 @@ namespace Morse
         private string fullText = "";
         private DispatcherTimer? idleTimer;
         private int delayMs = 800;
-        private const int DefaultDelayMs = 800;
+        private int streakTimeoutMs = 4000;
 
         private int learnLevel = 1;
         private char learnTarget = 'A';
@@ -92,6 +99,8 @@ namespace Morse
         private bool learnHasEverStarted = false;
         private DispatcherTimer? clearStatusTimer;
         private DispatcherTimer? streakTimer;
+        private static readonly string SettingsPath = Path.Combine(
+            AppDomain.CurrentDomain.BaseDirectory, "settings.json");
 
         private const double BaseWindowHeight = 400;
         private const double SettingsHeight = 80;
@@ -99,6 +108,7 @@ namespace Morse
 
         public MainWindow()
         {
+            LoadSettings();
             InitializeComponent();
             SetupIdleTimer();
             SetupStreakTimer();
@@ -117,7 +127,7 @@ namespace Morse
         private void SetupStreakTimer()
         {
             streakTimer = new DispatcherTimer();
-            streakTimer.Interval = TimeSpan.FromMilliseconds(StreakTimeoutMs);
+            streakTimer.Interval = TimeSpan.FromMilliseconds(streakTimeoutMs);
             streakTimer.Tick += StreakTimer_Tick;
         }
 
@@ -471,7 +481,14 @@ namespace Morse
         {
             bool isExpanding = SettingsPanel.Visibility == Visibility.Collapsed;
             SettingsPanel.Visibility = isExpanding ? Visibility.Visible : Visibility.Collapsed;
-            DelayInput.Text = (delayMs / 1000.0).ToString("F1");
+
+            if (isExpanding)
+            {
+                DelaySlider.Value = delayMs / 1000.0;
+                StreakSlider.Value = streakTimeoutMs / 1000.0;
+                DelaySliderValue.Text = $"{delayMs / 1000.0:F1}s";
+                StreakSliderValue.Text = $"{streakTimeoutMs / 1000.0}s";
+            }
 
             double targetHeight = BaseWindowHeight;
             if (isExpanding)
@@ -498,32 +515,32 @@ namespace Morse
             Focus();
         }
 
-        private void ApplySettings_Click(object sender, RoutedEventArgs e)
+        private void DelaySlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
         {
-            if (double.TryParse(DelayInput.Text, out double seconds))
-            {
-                delayMs = (int)(seconds * 1000);
-                if (delayMs < 100) delayMs = 100;
-                if (delayMs > 10000) delayMs = 10000;
+            if (DelaySliderValue == null) return;
+            double seconds = Math.Round(e.NewValue, 1);
+            if (seconds < 0.1) seconds = 0.1;
+            if (seconds > 1.0) seconds = 1.0;
+            delayMs = (int)(seconds * 1000);
+            DelaySliderValue.Text = $"{seconds:F1}s";
+            if (idleTimer != null)
+                idleTimer.Interval = TimeSpan.FromMilliseconds(delayMs);
+            SaveSettings();
+            ShowTempStatus($"✓ Delay set to {seconds:F1}s");
+        }
 
-                if (idleTimer != null)
-                    idleTimer.Interval = TimeSpan.FromMilliseconds(delayMs);
-
-                ShowTempStatus($"✓ Delay set to {delayMs}ms");
-                DelayInput.Text = (delayMs / 1000.0).ToString("F1");
-                SettingsPanel.Visibility = Visibility.Collapsed;
-
-                double targetHeight = BaseWindowHeight;
-                if (CheatSheetPanel.Visibility == Visibility.Visible)
-                    targetHeight += CheatSheetHeight;
-                AnimateWindowHeight(targetHeight);
-
-                Focus();
-            }
-            else
-            {
-                ShowTempStatus("✗ Invalid input");
-            }
+        private void StreakSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+        {
+            if (StreakSliderValue == null) return;
+            int seconds = (int)Math.Round(e.NewValue);
+            if (seconds < 1) seconds = 1;
+            if (seconds > 5) seconds = 5;
+            streakTimeoutMs = seconds * 1000;
+            StreakSliderValue.Text = $"{seconds}s";
+            if (streakTimer != null)
+                streakTimer.Interval = TimeSpan.FromMilliseconds(streakTimeoutMs);
+            SaveSettings();
+            ShowTempStatus($"✓ Streak timeout set to {seconds}s");
         }
 
         private void AnimateWindowHeight(double targetHeight)
@@ -545,6 +562,39 @@ namespace Morse
             clearStatusTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
             clearStatusTimer.Tick += (s, e) => { StatusText.Text = ""; clearStatusTimer.Stop(); };
             clearStatusTimer.Start();
+        }
+
+        private void LoadSettings()
+        {
+            try
+            {
+                if (File.Exists(SettingsPath))
+                {
+                    var json = File.ReadAllText(SettingsPath);
+                    var config = JsonSerializer.Deserialize<AppConfig>(json);
+                    if (config != null)
+                    {
+                        delayMs = config.DelayMs;
+                        streakTimeoutMs = config.StreakTimeoutMs;
+                    }
+                }
+            }
+            catch { }
+        }
+
+        private void SaveSettings()
+        {
+            try
+            {
+                var config = new AppConfig
+                {
+                    DelayMs = delayMs,
+                    StreakTimeoutMs = streakTimeoutMs
+                };
+                var json = JsonSerializer.Serialize(config, new JsonSerializerOptions { WriteIndented = true });
+                File.WriteAllText(SettingsPath, json);
+            }
+            catch { }
         }
 
         // ─── Mode switching ────────────────────────────────────────
