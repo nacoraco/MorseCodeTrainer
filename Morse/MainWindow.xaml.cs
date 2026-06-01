@@ -48,6 +48,13 @@ namespace Morse
                 LetterToMask[kvp.Value] = kvp.Key;
         }
 
+        private class LetterTiming
+        {
+            public char Letter { get; set; }
+            public int Count { get; set; }
+            public double TotalMs { get; set; }
+        }
+
         private static readonly int[] ChordBits = { 1, 2, 4, 8, 16, 32 };
         private static readonly string[] ChordKeyLabels = { "7", "8", "4", "5", "1", "2" };
         private static readonly string[] ChordDotLabels = { "A", "B", "C", "D", "E", "F" };
@@ -75,9 +82,11 @@ namespace Morse
         {
             public int DelayMs { get; set; } = 800;
             public int StreakTimeoutMs { get; set; } = 4000;
+            public List<LetterTiming>? LetterTimings { get; set; }
         }
 
-        private const int MaxLearnLevel = 7;
+        private const int MaxLearnLevel = 8;
+        private const int SmartQueueSize = 15;
         private const int AutoLevelUpStreak = 10;
 
         private InputMode mode = InputMode.Morse;
@@ -97,6 +106,9 @@ namespace Morse
         private readonly HashSet<int> learnRevealedBits = new();
         private readonly List<int> learnHintBits = new();
         private bool learnHasEverStarted = false;
+        private readonly Dictionary<char, LetterTiming> letterTimings = new();
+        private readonly Queue<char> smartQueue = new();
+        private DateTime learnTargetPresentedAt;
         private DispatcherTimer? clearStatusTimer;
         private DispatcherTimer? streakTimer;
         private static readonly string SettingsPath = Path.Combine(
@@ -341,6 +353,19 @@ namespace Morse
                 streakTimer?.Stop();
                 streakTimer?.Start();
 
+                if (learnLevel == MaxLearnLevel)
+                {
+                    double elapsed = (DateTime.UtcNow - learnTargetPresentedAt).TotalMilliseconds;
+                    if (!letterTimings.TryGetValue(learnTarget, out var lt))
+                    {
+                        lt = new LetterTiming { Letter = learnTarget, Count = 0, TotalMs = 0 };
+                        letterTimings[learnTarget] = lt;
+                    }
+                    lt.Count++;
+                    lt.TotalMs += elapsed;
+                    SaveSettings();
+                }
+
                 if (learnStreak >= AutoLevelUpStreak && learnLevel < MaxLearnLevel)
                 {
                     learnLevel++;
@@ -375,15 +400,49 @@ namespace Morse
         private void PickNextLearnTarget()
         {
             var previous = learnTarget;
+
+            if (learnLevel == MaxLearnLevel)
+            {
+                if (smartQueue.Count == 0)
+                    RebuildSmartQueue();
+                char next;
+                do
+                {
+                    next = smartQueue.Dequeue();
+                } while (next == previous && smartQueue.Count > 0);
+
+                if (next == previous)
+                {
+                    RebuildSmartQueue();
+                    learnTarget = previous;
+                    if (smartQueue.Count > 0)
+                        next = smartQueue.Dequeue();
+                }
+
+                learnTarget = next;
+                learnTargetMask = LetterToMask[learnTarget];
+                learnMissCount = 0;
+                learnRevealedBits.Clear();
+                learnHintBits.Clear();
+                for (int i = 0; i < ChordBits.Length; i++)
+                {
+                    if ((learnTargetMask & ChordBits[i]) != 0)
+                        learnHintBits.Add(i);
+                }
+                learnTargetPresentedAt = DateTime.UtcNow;
+                UpdateLearnUI();
+                return;
+            }
+
             var pool = LevelLetters[learnLevel];
 
-            char next;
+            char next2;
             do
             {
-                next = pool[Random.Shared.Next(pool.Count)];
-            } while (next == previous && pool.Count > 1);
+                next2 = pool[Random.Shared.Next(pool.Count)];
+            } while (next2 == previous && pool.Count > 1);
 
-            learnTarget = next;
+            learnTarget = next2;
             learnTargetMask = LetterToMask[learnTarget];
             learnMissCount = 0;
             learnRevealedBits.Clear();
@@ -396,6 +455,37 @@ namespace Morse
             }
 
             UpdateLearnUI();
+        }
+
+        private void RebuildSmartQueue()
+        {
+            smartQueue.Clear();
+            var allLetters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".ToList();
+
+            var unknown = allLetters.Where(c => !letterTimings.ContainsKey(c)).ToList();
+            var known = allLetters.Where(c => letterTimings.ContainsKey(c)).ToList();
+
+            var priorityUnknown = unknown.OrderBy(_ => Random.Shared.Next()).Take(SmartQueueSize).ToList();
+            foreach (var c in priorityUnknown)
+                smartQueue.Enqueue(c);
+
+            int remainingAfterUnknown = SmartQueueSize - smartQueue.Count;
+            if (remainingAfterUnknown > 0 && known.Count > 0)
+            {
+                var topSlowest = known.OrderByDescending(c =>
+                {
+                    var lt = letterTimings[c];
+                    return lt.Count > 0 ? lt.TotalMs / lt.Count : 0;
+                }).Take(remainingAfterUnknown).ToList();
+
+                foreach (var c in topSlowest)
+                    smartQueue.Enqueue(c);
+            }
+
+            var shuffled = smartQueue.OrderBy(_ => Random.Shared.Next()).ToList();
+            smartQueue.Clear();
+            foreach (var c in shuffled)
+                smartQueue.Enqueue(c);
         }
 
         private void UpdateDisplays()
@@ -576,6 +666,11 @@ namespace Morse
                     {
                         delayMs = config.DelayMs;
                         streakTimeoutMs = config.StreakTimeoutMs;
+                        if (config.LetterTimings != null)
+                        {
+                            foreach (var lt in config.LetterTimings)
+                                letterTimings[lt.Letter] = lt;
+                        }
                     }
                 }
             }
@@ -589,7 +684,8 @@ namespace Morse
                 var config = new AppConfig
                 {
                     DelayMs = delayMs,
-                    StreakTimeoutMs = streakTimeoutMs
+                    StreakTimeoutMs = streakTimeoutMs,
+                    LetterTimings = letterTimings.Values.ToList()
                 };
                 var json = JsonSerializer.Serialize(config, new JsonSerializerOptions { WriteIndented = true });
                 File.WriteAllText(SettingsPath, json);
@@ -631,6 +727,11 @@ namespace Morse
                 learnMissCount = 0;
                 learnRevealedBits.Clear();
                 learnHintBits.Clear();
+                PickNextLearnTarget();
+            }
+            else if (mode == InputMode.Learn && learnLevel == MaxLearnLevel)
+            {
+                RebuildSmartQueue();
                 PickNextLearnTarget();
             }
 
@@ -704,7 +805,10 @@ namespace Morse
 
         private void UpdateLearnUI()
         {
-            LearnLevelText.Text = $"Level {learnLevel} / {MaxLearnLevel}";
+            if (learnLevel == MaxLearnLevel)
+                LearnLevelText.Text = $"Level {learnLevel} / {MaxLearnLevel} (Smart)";
+            else
+                LearnLevelText.Text = $"Level {learnLevel} / {MaxLearnLevel}";
             LearnTargetText.Text = learnTarget.ToString();
             LearnHintText.Text = learnRevealedBits.Count > 0
                 ? "Hint: " + BuildHintString()
