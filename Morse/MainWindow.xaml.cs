@@ -109,6 +109,8 @@ namespace Morse
         private readonly Dictionary<char, LetterTiming> letterTimings = new();
         private readonly Queue<char> smartQueue = new();
         private DateTime learnTargetPresentedAt;
+        private bool learnHasPressedKeys;
+        private const int SmartTimingMaxMs = 10000;
         private DispatcherTimer? clearStatusTimer;
         private DispatcherTimer? streakTimer;
         private static readonly string SettingsPath = Path.Combine(
@@ -252,6 +254,7 @@ namespace Morse
         {
             if (ChordKeys.Contains(e.Key))
             {
+                learnHasPressedKeys = true;
                 int bit = KeyToBit(e.Key);
                 chordMask ^= bit;
                 UpdateDisplays();
@@ -356,14 +359,17 @@ namespace Morse
                 if (learnLevel == MaxLearnLevel)
                 {
                     double elapsed = (DateTime.UtcNow - learnTargetPresentedAt).TotalMilliseconds;
-                    if (!letterTimings.TryGetValue(learnTarget, out var lt))
+                    if (elapsed <= SmartTimingMaxMs || learnHasPressedKeys)
                     {
-                        lt = new LetterTiming { Letter = learnTarget, Count = 0, TotalMs = 0 };
-                        letterTimings[learnTarget] = lt;
+                        if (!letterTimings.TryGetValue(learnTarget, out var lt))
+                        {
+                            lt = new LetterTiming { Letter = learnTarget, Count = 0, TotalMs = 0 };
+                            letterTimings[learnTarget] = lt;
+                        }
+                        lt.Count++;
+                        lt.TotalMs += elapsed;
+                        SaveSettings();
                     }
-                    lt.Count++;
-                    lt.TotalMs += elapsed;
-                    SaveSettings();
                 }
 
                 if (learnStreak >= AutoLevelUpStreak && learnLevel < MaxLearnLevel)
@@ -430,6 +436,7 @@ namespace Morse
                         learnHintBits.Add(i);
                 }
                 learnTargetPresentedAt = DateTime.UtcNow;
+                learnHasPressedKeys = false;
                 UpdateLearnUI();
                 return;
             }
