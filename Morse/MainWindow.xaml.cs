@@ -53,6 +53,8 @@ namespace Morse
             public char Letter { get; set; }
             public int Count { get; set; }
             public double TotalMs { get; set; }
+            public int MissCount { get; set; }
+            public int ShownCount { get; set; }
         }
 
         private static readonly int[] ChordBits = { 1, 2, 4, 8, 16, 32 };
@@ -108,9 +110,6 @@ namespace Morse
         private bool learnHasEverStarted = false;
         private readonly Dictionary<char, LetterTiming> letterTimings = new();
         private readonly Queue<char> smartQueue = new();
-        private DateTime learnTargetPresentedAt;
-        private bool learnHasPressedKeys;
-        private const int SmartTimingMaxMs = 10000;
         private DispatcherTimer? clearStatusTimer;
         private DispatcherTimer? streakTimer;
         private static readonly string SettingsPath = Path.Combine(
@@ -254,7 +253,6 @@ namespace Morse
         {
             if (ChordKeys.Contains(e.Key))
             {
-                learnHasPressedKeys = true;
                 int bit = KeyToBit(e.Key);
                 chordMask ^= bit;
                 UpdateDisplays();
@@ -358,18 +356,13 @@ namespace Morse
 
                 if (learnLevel == MaxLearnLevel)
                 {
-                    double elapsed = (DateTime.UtcNow - learnTargetPresentedAt).TotalMilliseconds;
-                    if (elapsed <= SmartTimingMaxMs || learnHasPressedKeys)
+                    if (!letterTimings.TryGetValue(learnTarget, out var lt))
                     {
-                        if (!letterTimings.TryGetValue(learnTarget, out var lt))
-                        {
-                            lt = new LetterTiming { Letter = learnTarget, Count = 0, TotalMs = 0 };
-                            letterTimings[learnTarget] = lt;
-                        }
-                        lt.Count++;
-                        lt.TotalMs += elapsed;
-                        SaveSettings();
+                        lt = new LetterTiming { Letter = learnTarget, Count = 0, TotalMs = 0 };
+                        letterTimings[learnTarget] = lt;
                     }
+                    lt.Count++;
+                    SaveSettings();
                 }
 
                 if (learnStreak >= AutoLevelUpStreak && learnLevel < MaxLearnLevel)
@@ -392,6 +385,17 @@ namespace Morse
                 streakTimer?.Stop();
                 learnMissCount++;
                 chordMask = 0;
+
+                if (learnLevel == MaxLearnLevel)
+                {
+                    if (!letterTimings.TryGetValue(learnTarget, out var lt))
+                    {
+                        lt = new LetterTiming { Letter = learnTarget, Count = 0, TotalMs = 0 };
+                        letterTimings[learnTarget] = lt;
+                    }
+                    lt.MissCount++;
+                    SaveSettings();
+                }
 
                 int hintCount = learnMissCount - 1;
                 if (hintCount < learnHintBits.Count)
@@ -435,8 +439,11 @@ namespace Morse
                     if ((learnTargetMask & ChordBits[i]) != 0)
                         learnHintBits.Add(i);
                 }
-                learnTargetPresentedAt = DateTime.UtcNow;
-                learnHasPressedKeys = false;
+                if (letterTimings.TryGetValue(learnTarget, out var targetLt))
+                {
+                    targetLt.ShownCount++;
+                    SaveSettings();
+                }
                 UpdateLearnUI();
                 return;
             }
@@ -467,26 +474,37 @@ namespace Morse
         private void RebuildSmartQueue()
         {
             smartQueue.Clear();
-            var allLetters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".ToList();
 
-            var unknown = allLetters.Where(c => !letterTimings.ContainsKey(c)).ToList();
-            var known = allLetters.Where(c => letterTimings.ContainsKey(c)).ToList();
+            var letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".ToArray();
+            var weights = new double[letters.Length];
 
-            var priorityUnknown = unknown.OrderBy(_ => Random.Shared.Next()).Take(SmartQueueSize).ToList();
-            foreach (var c in priorityUnknown)
-                smartQueue.Enqueue(c);
-
-            int remainingAfterUnknown = SmartQueueSize - smartQueue.Count;
-            if (remainingAfterUnknown > 0 && known.Count > 0)
+            for (int i = 0; i < letters.Length; i++)
             {
-                var topSlowest = known.OrderByDescending(c =>
-                {
-                    var lt = letterTimings[c];
-                    return lt.Count > 0 ? lt.TotalMs / lt.Count : 0;
-                }).Take(remainingAfterUnknown).ToList();
+                char c = letters[i];
+                if (letterTimings.TryGetValue(c, out var lt) && lt.ShownCount > 0)
+                    weights[i] = 1.0 + lt.MissCount;
+                else
+                    weights[i] = 1.0;
+            }
 
-                foreach (var c in topSlowest)
-                    smartQueue.Enqueue(c);
+            var remaining = Enumerable.Range(0, letters.Length).ToList();
+            for (int i = 0; i < SmartQueueSize && remaining.Count > 0; i++)
+            {
+                double totalWeight = remaining.Sum(j => weights[j]);
+                double roll = Random.Shared.NextDouble() * totalWeight;
+                double cumulative = 0;
+                int selectedIdx = 0;
+                for (int si = 0; si < remaining.Count; si++)
+                {
+                    cumulative += weights[remaining[si]];
+                    if (roll <= cumulative)
+                    {
+                        selectedIdx = si;
+                        break;
+                    }
+                }
+                smartQueue.Enqueue(letters[remaining[selectedIdx]]);
+                remaining.RemoveAt(selectedIdx);
             }
 
             var shuffled = smartQueue.OrderBy(_ => Random.Shared.Next()).ToList();
