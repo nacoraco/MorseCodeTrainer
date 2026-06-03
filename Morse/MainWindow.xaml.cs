@@ -24,7 +24,8 @@ namespace Morse
             { "..-", 'U' }, { "...-", 'V' }, { ".--", 'W' }, { "-..-", 'X' }, { "-.--", 'Y' },
             { "--..", 'Z' }, { "-----", '0' }, { ".----", '1' }, { "..---", '2' }, { "...--", '3' },
             { "....-", '4' }, { ".....", '5' }, { "-....", '6' }, { "--...", '7' }, { "---..", '8' },
-            { "----.", '9' }
+            { "----.", '9' }, { ".-.-.", '+' }, { "-....-", '-' }, { ".-..-", '*' },
+            { "-..-.", '/' }, { "-.--.", '(' }, { "-.--.-", ')' }, { "--..--", ',' }
         };
 
         private static readonly Dictionary<int, char> ChordDict = new()
@@ -36,7 +37,8 @@ namespace Morse
             { 24, 'T' }, { 40, 'U' },
             { 48, 'V' },
             { 7, 'X' }, { 11, 'Y' }, { 19, 'Z' }, { 35, 'W' },
-            { 13, 'Q' }
+            { 13, 'Q' },
+            { 14, '+' }, { 21, '-' }, { 22, '*' }, { 25, '/' }, { 26, '(' }, { 28, ')' }, { 15, ',' }
         };
 
         private static readonly Dictionary<char, int> LetterToMask;
@@ -77,6 +79,7 @@ namespace Morse
             new() { 'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P', 'R', 'S' },
             new() { 'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P', 'R', 'S', 'T', 'U' },
             new() { 'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P', 'R', 'S', 'T', 'U', 'V' },
+            new() { '+', '-', '*', '/', '(', ')', ',' },
             new() { 'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P', 'R', 'S', 'T', 'U', 'V', 'X', 'Y', 'Z', 'W', 'Q' }
         };
 
@@ -87,7 +90,7 @@ namespace Morse
             public List<LetterTiming>? LetterTimings { get; set; }
         }
 
-        private const int MaxLearnLevel = 8;
+        private const int MaxLearnLevel = 9;
         private const int SmartQueueSize = 15;
         private const int AutoLevelUpStreak = 10;
 
@@ -475,7 +478,7 @@ namespace Morse
         {
             smartQueue.Clear();
 
-            var letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".ToArray();
+            var letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ+-*/(),".ToArray();
             var weights = new double[letters.Length];
 
             for (int i = 0; i < letters.Length; i++)
