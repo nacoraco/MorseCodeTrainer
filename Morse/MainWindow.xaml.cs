@@ -658,6 +658,14 @@ namespace Morse
             if (streakTimer != null)
                 streakTimer.Interval = TimeSpan.FromMilliseconds(streakTimeoutMs);
             SaveSettings();
+            if (mode == InputMode.Learn && learnLevel > 1)
+            {
+                learnLevel = 1;
+                learnStreak = 0;
+                learnMissCount = 0;
+                PickNextLearnTarget();
+                UpdateLearnUI();
+            }
             ShowTempStatus($"✓ Streak timeout set to {seconds}s");
         }
 
